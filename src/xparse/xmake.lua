@@ -1,6 +1,4 @@
 target("xparse")
-    add_packages("libtooling")
-
-    set_kind("static")
+    set_kind("headeronly")
+    add_packages("libtooling", { public = true })
     add_includedirs("..", { public = true })
-    add_files("**.cpp")

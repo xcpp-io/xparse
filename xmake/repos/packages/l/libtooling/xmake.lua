@@ -16,7 +16,6 @@ package("libtooling")
 
     on_load(function (package)
         package:add("syslinks", "Version", "advapi32", "Shcore", "user32", "shell32", "Ole32", { public = true })
-        package:add("linkdirs", "lib")
         for _, lib_path in ipairs(os.files(package:installdir("lib"))) do
             local lib = string.gsub(path.basename(lib_path), "%..*$", "")
             package:add("links", lib)
