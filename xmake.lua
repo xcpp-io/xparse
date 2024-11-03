@@ -7,3 +7,4 @@ add_repositories("xparse-repo xmake/repos")
 add_requires("libtooling", "gtest")
 
 includes("src/xparse", "src/cli")
+includes("src/dump-ast")

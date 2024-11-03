@@ -15,7 +15,6 @@
 #include "mark.h"
 #include "meta.h"
 
-
 #include <clang/AST/ASTConsumer.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendAction.h>
@@ -28,6 +27,15 @@
 namespace xparse {
 
 namespace detail {
+
+    using LimitedString = llvm::SmallString<1024>;
+
+    inline std::string removeAllSpaces(const std::string& input)
+    {
+        std::string output = input;
+        output.erase(std::remove(output.begin(), output.end(), ' '), output.end());
+        return output;
+    }
 
     inline MarkDatabase loadMarksFromFiles(const std::vector<std::string>& filepaths)
     {
@@ -66,7 +74,7 @@ namespace detail {
                         }
                     }
                 }
-                marks[name_obj.str()] = attrs;
+                marks[removeAllSpaces(name_obj.str())] = attrs;
             }
         }
         return marks;
@@ -92,6 +100,32 @@ namespace detail {
         return result;
     }
 
+    inline std::string getClassTemplateAppendedArgs(clang::ClassTemplateSpecializationDecl* decl)
+    {
+        std::string appended_name = "<";
+        const auto& template_args = decl->getTemplateArgs();
+        for (unsigned i = 0; i < template_args.size(); ++i) {
+            const auto& arg = template_args[i];
+
+            std::string arg_str;
+            if (arg.getKind() == clang::TemplateArgument::Type) {
+                arg_str = arg.getAsType().getAsString();
+            } else if (arg.getKind() == clang::TemplateArgument::Integral) {
+                LimitedString integral_str;
+                arg.getAsIntegral().toString(integral_str, 10);
+                arg_str = integral_str.str();
+            }
+
+            appended_name += arg_str;
+            if (i < template_args.size() - 1) {
+                appended_name += ",";
+            }
+        }
+        appended_name += ">";
+
+        return appended_name;
+    }
+
 } // namespace detail
 
 class ReflectASTConsumer : public clang::ASTConsumer {
@@ -113,18 +147,27 @@ public:
     void HandleTranslationUnit(clang::ASTContext& ctx) override;
 
 protected:
-    bool isMarked(clang::NamedDecl* decl);
+    bool isMarked(const std::string& name);
+
     std::string getFilename(clang::NamedDecl* decl);
 
+    /**
+     * @brief       Fill the following info: name, access, comment, attrs.
+     *              If "full_name" isn't assigned in advance, then attrs will not be filled in.
+     *              This is because different decls may have different ways of obtaining "full_name".
+     */
     void fillBaseInfo(MetaInfo* info, clang::NamedDecl* decl);
     void fillValueInfo(ValueMetaInfo* info, clang::ValueDecl* decl);
     void fillFunctionInfo(FunctionMetaInfo* info, clang::FunctionDecl* decl);
+    void fillRecordInfo(RecordMetaInfo* info, clang::CXXRecordDecl* decl);
+    void fillFieldInfo(FieldMetaInfo* info, clang::FieldDecl* decl);
 
     void handleDecl(clang::NamespaceDecl* decl);
 
     void handleDecl(clang::CXXRecordDecl* decl);
     void handleDecl(RecordMetaInfo* info, clang::FieldDecl* decl);
     void handleDecl(RecordMetaInfo* info, clang::CXXMethodDecl* decl);
+    void handleDecl(RecordMetaInfo* info, clang::IndirectFieldDecl* decl);
 
     void handleDecl(clang::VarDecl* decl);
 
@@ -133,6 +176,8 @@ protected:
 
     void handleDecl(clang::EnumDecl* decl);
     void handleDecl(EnumMetaInfo* info, clang::EnumConstantDecl* decl);
+
+    void handleDecl(clang::ClassTemplateSpecializationDecl* decl);
 
 private:
     ProjectMetaInfo* m_metadata;
@@ -172,18 +217,18 @@ inline void ReflectASTConsumer::HandleTranslationUnit(clang::ASTContext& ctx)
         case clang::Decl::Function:
             this->handleDecl(llvm::cast<clang::FunctionDecl>(named_decl));
             break;
+        case clang::Decl::ClassTemplateSpecialization:
+            this->handleDecl(llvm::cast<clang::ClassTemplateSpecializationDecl>(named_decl));
+            break;
         default:
             break;
         }
     }
 }
 
-inline bool ReflectASTConsumer::isMarked(clang::NamedDecl* decl)
+inline bool ReflectASTConsumer::isMarked(const std::string& name)
 {
-    if (!decl || decl->isInvalidDecl()) {
-        return false;
-    }
-    return m_marks.find(decl->getQualifiedNameAsString()) != m_marks.end();
+    return m_marks.find(name) != m_marks.end();
 }
 
 inline std::string ReflectASTConsumer::getFilename(clang::NamedDecl* decl)
@@ -201,15 +246,15 @@ inline std::string ReflectASTConsumer::getFilename(clang::NamedDecl* decl)
 
 inline void ReflectASTConsumer::fillBaseInfo(MetaInfo* info, clang::NamedDecl* decl)
 {
-    info->name = decl->getQualifiedNameAsString();
+    info->name = decl->getNameAsString();
     info->access = detail::getMemberAccess(decl);
 
     auto* raw_comment = m_context->getRawCommentForDeclNoCache(decl);
     if (raw_comment) {
         info->comment = raw_comment->getBriefText(*m_context);
     }
-    if (m_marks.find(info->name) != m_marks.end()) {
-        info->attrs = m_marks.at(info->name);
+    if (m_marks.find(info->full_name) != m_marks.end()) {
+        info->attrs = m_marks.at(info->full_name);
     }
 }
 
@@ -231,6 +276,64 @@ inline void ReflectASTConsumer::fillFunctionInfo(FunctionMetaInfo* info, clang::
     for (auto* param_decl : decl->parameters()) {
         this->handleDecl(info, param_decl);
     }
+}
+
+inline void ReflectASTConsumer::fillRecordInfo(RecordMetaInfo* info, clang::CXXRecordDecl* decl)
+{
+    this->fillBaseInfo(info, decl);
+
+    auto* record_decl = llvm::dyn_cast<clang::CXXRecordDecl>(decl);
+    if (!record_decl->isThisDeclarationADefinition()) {
+        return; // take out cases with only declarations
+    }
+    if (record_decl->isAnonymousStructOrUnion()) {
+        return; // take out cases with anonymous record
+    }
+    if (record_decl->isUnion()) {
+        return; // we didn't support union.
+    }
+
+    for (const auto& base : record_decl->bases()) {
+        auto* base_decl = base.getType()->getAsCXXRecordDecl();
+        if (base_decl) {
+            info->bases.push_back(base_decl->getQualifiedNameAsString());
+        }
+    }
+
+    for (auto* child_decl : record_decl->decls()) {
+        switch (child_decl->getKind()) {
+        case clang::Decl::Field:
+            this->handleDecl(info, llvm::cast<clang::FieldDecl>(child_decl));
+            break;
+        case clang::Decl::CXXMethod:
+            this->handleDecl(info, llvm::cast<clang::CXXMethodDecl>(child_decl));
+            break;
+        case clang::Decl::Var:
+            this->handleDecl(llvm::cast<clang::VarDecl>(child_decl));
+            break;
+        case clang::Decl::IndirectField:
+            this->handleDecl(info, llvm::cast<clang::IndirectFieldDecl>(child_decl));
+            break;
+        case clang::Decl::CXXRecord:
+            this->handleDecl(llvm::cast<clang::CXXRecordDecl>(child_decl));
+            break;
+        case clang::Decl::Enum:
+            this->handleDecl(llvm::cast<clang::EnumDecl>(child_decl));
+            break;
+        case clang::Decl::ClassTemplateSpecialization:
+            this->handleDecl(llvm::cast<clang::ClassTemplateSpecializationDecl>(child_decl));
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+inline void ReflectASTConsumer::fillFieldInfo(FieldMetaInfo* info, clang::FieldDecl* decl)
+{
+    this->fillValueInfo(info, decl);
+    
+    info->is_mutable = decl->isMutable();
 }
 
 inline void ReflectASTConsumer::handleDecl(clang::NamespaceDecl* decl)
@@ -257,6 +360,9 @@ inline void ReflectASTConsumer::handleDecl(clang::NamespaceDecl* decl)
         case clang::Decl::Function:
             this->handleDecl(llvm::cast<clang::FunctionDecl>(child_decl));
             break;
+        case clang::Decl::ClassTemplateSpecialization:
+            this->handleDecl(llvm::cast<clang::ClassTemplateSpecializationDecl>(child_decl));
+            break;
         default:
             break;
         }
@@ -265,79 +371,61 @@ inline void ReflectASTConsumer::handleDecl(clang::NamespaceDecl* decl)
 
 inline void ReflectASTConsumer::handleDecl(clang::CXXRecordDecl* decl)
 {
-    if (!this->isMarked(decl)) {
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
         return;
     }
 
     RecordMetaInfo record_info;
-    this->fillBaseInfo(&record_info, decl);
+    record_info.full_name = full_name;
+    this->fillRecordInfo(&record_info, decl);
 
-    auto* record_decl = llvm::dyn_cast<clang::CXXRecordDecl>(decl);
-    if (!record_decl->isThisDeclarationADefinition()) {
-        return; // take out cases with only declarations
-    }
-    if (record_decl->isAnonymousStructOrUnion()) {
-        return; // take out cases with anonymous record
-    }
-    if (record_decl->isUnion()) {
-        return; // we didn't support union.
-    }
-
-    for (const auto& base : record_decl->bases()) {
-        auto* base_decl = base.getType()->getAsCXXRecordDecl();
-        if (base_decl) {
-            record_info.bases.push_back(base_decl->getQualifiedNameAsString());
-        }
-    }
-
-    for (auto* child_decl : record_decl->decls()) {
-        if (auto* field_decl = llvm::dyn_cast<clang::FieldDecl>(child_decl)) {
-            this->handleDecl(&record_info, field_decl);
-        }
-        if (auto* method_decl = llvm::dyn_cast<clang::CXXMethodDecl>(child_decl)) {
-            this->handleDecl(&record_info, method_decl);
-        }
-        if (auto* var_decl = llvm::dyn_cast<clang::VarDecl>(child_decl)) {
-            this->handleDecl(var_decl);
-        }
-        if (auto* record_decl = llvm::dyn_cast<clang::CXXRecordDecl>(child_decl)) {
-            this->handleDecl(record_decl);
-        }
-        if (auto* enum_decl = llvm::dyn_cast<clang::EnumDecl>(child_decl)) {
-            this->handleDecl(enum_decl);
-        }
-    }
     (*m_metadata)[this->getFilename(decl)].records.push_back(record_info);
 }
 
 inline void ReflectASTConsumer::handleDecl(RecordMetaInfo* info, clang::FieldDecl* decl)
 {
-    if (!this->isMarked(decl)) {
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
         return;
     }
 
     FieldMetaInfo field_info;
-    this->fillValueInfo(&field_info, decl);
-
-    field_info.is_mutable = decl->isMutable();
+    field_info.full_name = full_name;
+    this->fillFieldInfo(&field_info, decl);
 
     info->fields.push_back(field_info);
 }
 
 inline void ReflectASTConsumer::handleDecl(RecordMetaInfo* info, clang::CXXMethodDecl* decl)
 {
-    if (!this->isMarked(decl)) {
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
         return;
     }
 
     // put static functions and global functions together
     if (decl->isStatic()) {
         FunctionMetaInfo function_info;
+        function_info.full_name = full_name;
         this->fillFunctionInfo(&function_info, decl);
 
         (*m_metadata)[this->getFilename(decl)].functions.push_back(function_info);
     } else {
         MethodMetaInfo method_info;
+        method_info.full_name = full_name;
         this->fillFunctionInfo(&method_info, decl);
 
         method_info.is_virtual = decl->isVirtual();
@@ -350,23 +438,61 @@ inline void ReflectASTConsumer::handleDecl(RecordMetaInfo* info, clang::CXXMetho
 
 inline void ReflectASTConsumer::handleDecl(clang::VarDecl* decl)
 {
-    if (!this->isMarked(decl)) {
+    if (!decl || decl->isInvalidDecl()) {
         return;
     }
 
-    VarMetaInfo var_info;
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
+        return;
+    }
+
+    ValueMetaInfo var_info;
+    var_info.full_name = full_name;
     this->fillValueInfo(&var_info, decl);
 
     (*m_metadata)[this->getFilename(decl)].variables.push_back(var_info);
 }
 
+inline void ReflectASTConsumer::handleDecl(RecordMetaInfo* info, clang::IndirectFieldDecl* decl)
+{
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
+        return;
+    }
+
+    if (auto* field_decl = decl->getAnonField()) {
+        FieldMetaInfo field_info;
+        field_info.full_name = full_name;
+        this->fillFieldInfo(&field_info, field_decl);
+
+        info->fields.push_back(field_info);
+    } else if (auto* var_decl = decl->getVarDecl()) {
+        ValueMetaInfo var_info;
+        var_info.full_name = full_name;
+        this->fillValueInfo(&var_info, decl);
+
+        (*m_metadata)[this->getFilename(decl)].variables.push_back(var_info);
+    }
+}
+
 inline void ReflectASTConsumer::handleDecl(clang::FunctionDecl* decl)
 {
-    if (!this->isMarked(decl)) {
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
         return;
     }
 
     FunctionMetaInfo function_info;
+    function_info.full_name = full_name;
     this->fillFunctionInfo(&function_info, decl);
 
     (*m_metadata)[this->getFilename(decl)].functions.push_back(function_info);
@@ -379,11 +505,21 @@ inline void ReflectASTConsumer::handleDecl(FunctionMetaInfo* info, clang::ParmVa
         return;
     }
 
-    ParamVarMetaInfo param_info;
+    ParamMetaInfo param_info;
+    param_info.full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
     this->fillValueInfo(&param_info, decl);
 
-    param_info.is_default = decl->hasDefaultArg();
+    param_info.index = decl->getFunctionScopeIndex();
 
+    // NOTE: fill attrs for anonymous param.
+    if (param_info.name.empty()) {
+        std::string anonymous_name = info->name + "::" + std::to_string(param_info.index);
+        if (m_marks.find(anonymous_name) != m_marks.end()) {
+            param_info.attrs = m_marks.at(anonymous_name);
+        }
+    }
+    
+    param_info.is_default = decl->hasDefaultArg();
     if (param_info.is_default) {
         const clang::Expr* default_arg = decl->getDefaultArg();
         std::string defaultValue;
@@ -397,11 +533,17 @@ inline void ReflectASTConsumer::handleDecl(FunctionMetaInfo* info, clang::ParmVa
 
 inline void ReflectASTConsumer::handleDecl(clang::EnumDecl* decl)
 {
-    if (!this->isMarked(decl)) {
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
+    if (!isMarked(full_name)) {
         return;
     }
 
     EnumMetaInfo enum_info;
+    enum_info.full_name = full_name;
     this->fillBaseInfo(&enum_info, decl);
 
     for (auto* constant_decl : decl->enumerators()) {
@@ -419,11 +561,33 @@ inline void ReflectASTConsumer::handleDecl(EnumMetaInfo* info, clang::EnumConsta
     }
 
     EnumConstantMetaInfo constant_info;
+    constant_info.full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString());
     this->fillBaseInfo(&constant_info, decl);
 
     constant_info.value = decl->getInitVal().getRawData()[0];
 
     info->constants.push_back(constant_info);
+}
+
+inline void ReflectASTConsumer::handleDecl(clang::ClassTemplateSpecializationDecl* decl)
+{
+    if (!decl || decl->isInvalidDecl()) {
+        return;
+    }
+
+    std::string template_args_str = detail::getClassTemplateAppendedArgs(decl);
+    std::string full_name = detail::removeAllSpaces(decl->getQualifiedNameAsString() + template_args_str);
+    if (m_marks.find(full_name) == m_marks.end()) {
+        return;
+    }
+
+    RecordMetaInfo record_info;
+    record_info.full_name = full_name;
+    this->fillRecordInfo(&record_info, decl);
+
+    record_info.name += template_args_str;
+
+    (*m_metadata)[this->getFilename(decl)].records.push_back(record_info);
 }
 
 } // namespace xparse
