@@ -29,6 +29,7 @@ namespace xparse {
  */
 struct MetaInfo {
     std::string name;
+    std::string full_name;
     std::vector<std::string> attrs;
     std::string comment;
     std::string access;
@@ -47,18 +48,16 @@ struct FieldMetaInfo : ValueMetaInfo {
     bool is_mutable = false;
 };
 
-struct ParamVarMetaInfo : ValueMetaInfo {
+struct ParamMetaInfo : ValueMetaInfo {
+    unsigned index = 0;
     bool is_default = false;
     std::string default_value;
-};
-
-struct VarMetaInfo : ValueMetaInfo {
 };
 
 struct FunctionMetaInfo : MetaInfo {
     std::string ret_type;
     std::string ret_raw_type;
-    std::vector<ParamVarMetaInfo> params;
+    std::vector<ParamMetaInfo> params;
 };
 
 struct MethodMetaInfo : FunctionMetaInfo {
@@ -92,7 +91,7 @@ struct EnumMetaInfo : MetaInfo {
  */
 struct FileMetaInfo {
     std::vector<RecordMetaInfo> records;
-    std::vector<VarMetaInfo> variables;
+    std::vector<ValueMetaInfo> variables;
     std::vector<FunctionMetaInfo> functions;
     std::vector<EnumMetaInfo> enums;
 };

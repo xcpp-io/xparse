@@ -73,6 +73,7 @@ public:
 XPARSE_SERIALIZE_OBJECT_ATTRS(MetaInfo)
 {
     XPARSE_SERIALIZE_ATTR(name);
+    XPARSE_SERIALIZE_ATTR(full_name);
     XPARSE_SERIALIZE_ATTR(attrs);
     XPARSE_SERIALIZE_ATTR(comment);
     XPARSE_SERIALIZE_ATTR(access);
@@ -107,26 +108,15 @@ XPARSE_SERIALIZE_OBJECT(FieldMetaInfo)
     });
 }
 
-XPARSE_SERIALIZE_OBJECT_ATTRS(ParamVarMetaInfo)
+XPARSE_SERIALIZE_OBJECT_ATTRS(ParamMetaInfo)
 {
     XPARSE_SERIALIZE_ATTR_FROM_OBJECT(ValueMetaInfo);
+    XPARSE_SERIALIZE_ATTR(index);
     XPARSE_SERIALIZE_ATTR(is_default);
     XPARSE_SERIALIZE_ATTR(default_value);
 }
 
-XPARSE_SERIALIZE_OBJECT(ParamVarMetaInfo)
-{
-    outs.object([&] {
-        Serializer::serializeAttrs(outs, ins);
-    });
-}
-
-XPARSE_SERIALIZE_OBJECT_ATTRS(VarMetaInfo)
-{
-    XPARSE_SERIALIZE_ATTR_FROM_OBJECT(ValueMetaInfo);
-}
-
-XPARSE_SERIALIZE_OBJECT(VarMetaInfo)
+XPARSE_SERIALIZE_OBJECT(ParamMetaInfo)
 {
     outs.object([&] {
         Serializer::serializeAttrs(outs, ins);
