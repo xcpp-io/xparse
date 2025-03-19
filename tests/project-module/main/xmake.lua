@@ -1,0 +1,5 @@
+target("project-module-main")
+    set_default(false)
+    set_kind("binary")
+    add_deps("project-module-test1")
+    add_files("source/main.cpp")
