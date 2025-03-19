@@ -13,12 +13,13 @@
 
 #include <llvm/Support/FormatVariadic.h>
 
-#define XPARSE_LOG_FORMAT "[xparse] {0}\n"
-
 #define XPARSE_LOG_INFO(MSG, ...) \
-    llvm::outs() << llvm::formatv(XPARSE_LOG_FORMAT, llvm::formatv(MSG, __VA_ARGS__))
+    llvm::outs() << llvm::formatv("[info] {0}\n", llvm::formatv(MSG, __VA_ARGS__))
+
+#define XPARSE_LOG_WARN(MSG, ...) \
+    llvm::outs() << llvm::formatv("[warn] {0}\n", llvm::formatv(MSG, __VA_ARGS__))
 
 #define XPARSE_LOG_ERROR(MSG, ...) \
-    llvm::errs() << llvm::formatv(XPARSE_LOG_FORMAT, llvm::formatv(MSG, __VA_ARGS__))
+    llvm::errs() << llvm::formatv("[error] {0}\n", llvm::formatv(MSG, __VA_ARGS__))
 
 #endif

@@ -1,5 +1,4 @@
 package("libtooling")
-
     set_kind("library")
     set_homepage("https://llvm.org/")
     set_description("The Clang Libtooling")
@@ -14,13 +13,8 @@ package("libtooling")
         end
     end
 
-    on_load(function (package)
-        package:add("syslinks", "Version", "advapi32", "Shcore", "user32", "shell32", "Ole32", { public = true })
-        for _, lib_path in ipairs(os.files(package:installdir("lib"))) do
-            local lib = string.gsub(path.basename(lib_path), "%..*$", "")
-            package:add("links", lib)
-        end
-    end)
+    add_syslinks("Version", "advapi32", "Shcore", "user32", "shell32", "Ole32")
+    add_links("lib/**")
 
     on_install(function (package)
         os.cp("*", package:installdir())
