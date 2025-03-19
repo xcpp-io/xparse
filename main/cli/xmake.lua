@@ -5,5 +5,5 @@ target("cli")
     add_files("**.cpp")
 
     after_build(function (target)
-        os.cp(target:targetfile(), path.join(os.projectdir(), "tools/xcpp"))
+        os.cp(target:targetfile(), path.join(os.projectdir(), "tools"))
     end)

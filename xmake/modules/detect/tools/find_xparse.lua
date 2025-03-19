@@ -6,7 +6,7 @@ function main(opt)
     opt.check = opt.check or "--help"
     opt.paths = opt.paths or
     {
-        "$(projectdir)/tools/xcpp"
+        "$(projectdir)/tools"
     }
 
     return find_program("xparse", opt)
