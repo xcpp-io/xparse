@@ -81,6 +81,8 @@ int main(int argc, char** argv)
 
         XPARSE_LOG_INFO("output meta file for \"{0}\".", filename);
 
+        database.path = filename;
+
         std::filesystem::path meta_filepath = std::filesystem::weakly_canonical(output_dir / filename);
         meta_filepath.replace_extension(meta_filepath.extension().string() + ".meta");
 

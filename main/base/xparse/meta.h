@@ -148,6 +148,7 @@ XPARSE_SERIALIZE_OBJECT(EnumMetaInfo)
  *              However, since we only care about their type information, we simplify this distinction.
  */
 struct FileMetaInfo {
+    std::string path;
     std::vector<RecordMetaInfo> records;
     std::vector<FunctionMetaInfo> functions;
     std::vector<EnumMetaInfo> enums;
@@ -155,6 +156,7 @@ struct FileMetaInfo {
 
 XPARSE_SERIALIZE_OBJECT(FileMetaInfo)
 {
+    XPARSE_SERIALIZE_ATTR(path);
     XPARSE_SERIALIZE_ATTR(records);
     XPARSE_SERIALIZE_ATTR(functions);
     XPARSE_SERIALIZE_ATTR(enums);
