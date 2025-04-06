@@ -407,7 +407,7 @@ inline ReflectASTConsumer::HandleResult ReflectASTConsumer::handleDecl(clang::CX
     }
 
     info.is_virtual = decl->isVirtual();
-    info.is_pure_virtual = decl->isPure();
+    info.is_pure_virtual = decl->isPureVirtual();
     info.is_override = decl->size_overridden_methods() > 0;
 
     return kSuccess;
