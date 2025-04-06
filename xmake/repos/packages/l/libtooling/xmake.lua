@@ -13,8 +13,7 @@ package("libtooling")
         end
     end
 
-    add_syslinks("Version", "advapi32", "Shcore", "user32", "shell32", "Ole32")
-    add_links("lib/**")
+    add_syslinks("Version", "advapi32", "Shcore", "user32", "shell32", "Ole32", { public = true })
 
     on_install(function (package)
         os.cp("*", package:installdir())

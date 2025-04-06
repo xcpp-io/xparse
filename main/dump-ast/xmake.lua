@@ -1,4 +1,5 @@
 target("dump-ast")
+    set_enabled(false)
     set_kind("binary")
-    add_packages("libtooling", { public = true })
+    add_packages("libtooling")
     add_files("**.cpp")
