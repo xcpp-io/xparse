@@ -40,6 +40,10 @@ int main(int argc, char** argv)
     for (int i = 0; i < argc; ++i) {
         args[i] = argv[i];
     }
+
+    args.insert(args.begin() + 1, "--extra-arg=-D__META__");
+    argc = llvm::cast<int>(args.size());
+
     auto expected_options_parser = CommonOptionsParser::create(argc, args.data(), s_category_option);
     if (!expected_options_parser) {
         llvm::errs() << expected_options_parser.takeError();
