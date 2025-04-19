@@ -3,6 +3,8 @@ set_project("xparse")
 add_rules("mode.debug", "mode.release")
 set_languages("cxx17")
 
+includes("xmake/desc_ext.lua")
+
 -- repos
 add_repositories("xparse-repo xmake/repos")
 add_requires("libtooling")

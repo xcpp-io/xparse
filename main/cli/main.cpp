@@ -5,21 +5,7 @@
 
 using clang::tooling::CommonOptionsParser;
 
-using namespace xparse;
-
-static llvm::cl::OptionCategory s_category_option("XParse");
-
-static llvm::cl::opt<std::string> s_root(
-    "root", llvm::cl::Required,
-    llvm::cl::desc("Specify root directory"),
-    llvm::cl::cat(s_category_option), llvm::cl::value_desc("string"));
-
-static llvm::cl::opt<std::string> s_output(
-    "output", llvm::cl::Required,
-    llvm::cl::desc("Specify database output directory"),
-    llvm::cl::cat(s_category_option), llvm::cl::value_desc("string"));
-
-static ProjectMetaInfo s_project_meta_info;
+static xparse::ProjectMetaInfo s_project_metadata;
 
 class ReflectFrontendAction : public clang::ASTFrontendAction {
 public:
@@ -30,7 +16,7 @@ public:
     {
         auto& options = compiler.getLangOpts();
         options.CommentOpts.ParseAllComments = true;
-        return std::make_unique<ReflectASTConsumer>(s_root, s_project_meta_info);
+        return std::make_unique<xparse::ReflectASTConsumer>(s_project_metadata);
     }
 };
 
@@ -44,27 +30,23 @@ int main(int argc, char** argv)
     args.insert(args.begin() + 1, "--extra-arg=-D__META__");
     argc = llvm::cast<int>(args.size());
 
+    {
+        std::string args_content;
+        for (size_t i = 0; i < args.size(); ++i) {
+            args_content += args[i];
+            if (i != args.size() - 1) {
+                args_content += " ";
+            }
+        }
+        XPARSE_LOG_INFO("start parsing, command: \"{0}\"", args_content);
+    }
+
+    llvm::cl::OptionCategory s_category_option("XParse");
     auto expected_options_parser = CommonOptionsParser::create(argc, args.data(), s_category_option);
     if (!expected_options_parser) {
         llvm::errs() << expected_options_parser.takeError();
         return -1;
     }
-
-    // check if root and and output exist.
-    if (!std::filesystem::exists(s_root.getValue())) {
-        XPARSE_LOG_ERROR("the root directory doesn't exist, path: \"{0}\".", s_root.getValue());
-        return -1;
-    }
-
-    std::filesystem::path output_dir(s_output.getValue());
-    if (!std::filesystem::exists(output_dir)) {
-        XPARSE_LOG_ERROR("the output directory doesn't exist, path: \"{0}\".", s_output.getValue());
-        return -1;
-    }
-
-    XPARSE_LOG_INFO(
-        "start parsing, args: \n\troot dir: \"{0}\", \n\toutput dir: \"{1}\".",
-        s_root.getValue(), s_output.getValue());
 
     // parse and collect metadata
     auto& options_parser = expected_options_parser.get();
@@ -75,42 +57,14 @@ int main(int argc, char** argv)
 
     int result = tool.run(clang::tooling::newFrontendActionFactory<ReflectFrontendAction>().get());
 
-    XPARSE_LOG_INFO("parsing completed, preparing to output meta file.");
+    XPARSE_LOG_INFO("parsing completed.");
 
     // output
-    for (auto& [filename, database] : s_project_meta_info) {
-        if (isMetadataEmpty(database)) {
-            continue;
-        }
+    llvm::json::OStream json_outs { llvm::outs() };
+    xparse::Serializer::serialize(json_outs, s_project_metadata);
+    llvm::outs().flush();
 
-        XPARSE_LOG_INFO("output meta file for \"{0}\".", filename);
-
-        database.path = filename;
-
-        std::filesystem::path meta_filepath = std::filesystem::weakly_canonical(output_dir / filename);
-        meta_filepath.replace_extension(meta_filepath.extension().string() + ".meta");
-
-        std::filesystem::path directory = meta_filepath.parent_path();
-        if (!directory.empty() && !std::filesystem::exists(directory)) {
-            std::filesystem::create_directories(directory);
-            XPARSE_LOG_INFO("create directory: \"{0}\".", directory.string());
-        }
-
-        std::error_code err_code;
-        llvm::raw_fd_stream outs(meta_filepath.string(), err_code);
-        if (err_code) {
-            XPARSE_LOG_ERROR("error writing file \"{0}\", reason: {1}.",
-                meta_filepath.string(), err_code.message());
-            return -1;
-        }
-
-        llvm::json::OStream json_outs { outs };
-        Serializer::serialize(json_outs, database);
-        outs.flush();
-
-        XPARSE_LOG_INFO("output meta file: \"{0}\".", meta_filepath.string());
-    }
-    XPARSE_LOG_INFO("meta file output completed!");
+    XPARSE_LOG_INFO("project metadata output completed!");
 
     return result;
 }

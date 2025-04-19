@@ -75,9 +75,8 @@ namespace detail {
 
 class ReflectASTConsumer : public clang::ASTConsumer {
 public:
-    ReflectASTConsumer(std::string root, ProjectMetaInfo& metadata)
-        : m_root(std::move(root))
-        , m_metadata(&metadata)
+    ReflectASTConsumer(ProjectMetaInfo& metadata)
+        : m_metadata(&metadata)
     {
     }
 
@@ -342,7 +341,7 @@ inline void ReflectASTConsumer::handleDecl(clang::CXXRecordDecl* decl)
         }
     }
 
-    (*m_metadata)[this->getFilename(decl)].records.push_back(info);
+    (*m_metadata).records.push_back(info);
 
     XPARSE_LOG_INFO("handled record: {0}.", info.full_name);
 }
@@ -424,7 +423,7 @@ inline void ReflectASTConsumer::handleDecl(clang::FunctionDecl* decl)
         return;
     }
 
-    (*m_metadata)[this->getFilename(decl)].functions.push_back(info);
+    (*m_metadata).functions.push_back(info);
 
     XPARSE_LOG_INFO("handled function: {0}.", info.full_name);
 }
@@ -447,7 +446,7 @@ inline void ReflectASTConsumer::handleDecl(clang::EnumDecl* decl)
         }
     }
 
-    (*m_metadata)[this->getFilename(decl)].enums.push_back(info);
+    (*m_metadata).enums.push_back(info);
 
     XPARSE_LOG_INFO("handled enum: {0}.", info.full_name);
 }

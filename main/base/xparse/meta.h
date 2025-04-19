@@ -14,7 +14,6 @@
 #include "serialize.h"
 
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #define XPARSE_DEFAULT_MEMBER(CLASS_NAME)               \
@@ -35,6 +34,7 @@ struct MetaInfo {
     std::vector<std::string> attrs;
     std::string access;
     std::string comment;
+    // int line;
 };
 
 XPARSE_SERIALIZE_OBJECT(MetaInfo)
@@ -44,6 +44,7 @@ XPARSE_SERIALIZE_OBJECT(MetaInfo)
     XPARSE_SERIALIZE_ATTR(attrs);
     XPARSE_SERIALIZE_ATTR(access);
     XPARSE_SERIALIZE_ATTR(comment);
+    // XPARSE_SERIALIZE_ATTR(line);
 }
 
 /**
@@ -147,27 +148,18 @@ XPARSE_SERIALIZE_OBJECT(EnumMetaInfo)
  * @note        In Clang, variables are stored using VarDecl instead of ValueDecl.
  *              However, since we only care about their type information, we simplify this distinction.
  */
-struct FileMetaInfo {
-    std::string path;
+struct ProjectMetaInfo {
     std::vector<RecordMetaInfo> records;
     std::vector<FunctionMetaInfo> functions;
     std::vector<EnumMetaInfo> enums;
 };
 
-XPARSE_SERIALIZE_OBJECT(FileMetaInfo)
+XPARSE_SERIALIZE_OBJECT(ProjectMetaInfo)
 {
-    XPARSE_SERIALIZE_ATTR(path);
     XPARSE_SERIALIZE_ATTR(records);
     XPARSE_SERIALIZE_ATTR(functions);
     XPARSE_SERIALIZE_ATTR(enums);
 }
-
-inline bool isMetadataEmpty(const FileMetaInfo& metadata)
-{
-    return metadata.records.empty() && metadata.functions.empty() && metadata.enums.empty();
-}
-
-using ProjectMetaInfo = std::unordered_map<std::string, FileMetaInfo>;
 
 } // namespace xparse
 

@@ -1,1 +1,1 @@
-includes("project-module")
+includes("project-module/**/xmake.lua")
