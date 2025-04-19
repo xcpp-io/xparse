@@ -59,9 +59,17 @@ int main(int argc, char** argv)
 
     XPARSE_LOG_INFO("parsing completed.");
 
-    // output
     llvm::json::OStream json_outs { llvm::outs() };
-    xparse::Serializer::serialize(json_outs, s_project_metadata);
+    json_outs.arrayBegin();
+    for (auto& [filename, file_metadata] : s_project_metadata)
+    {
+        if (xparse::isEmpty(file_metadata)) {
+            continue;
+        }
+        file_metadata.file = filename;
+        xparse::Serializer::serialize(json_outs, file_metadata);
+    }
+    json_outs.arrayEnd();
     llvm::outs().flush();
 
     XPARSE_LOG_INFO("project metadata output completed!");

@@ -88,7 +88,8 @@ public:
     void HandleTranslationUnit(clang::ASTContext& ctx) override;
 
 protected:
-    std::string getFilename(clang::NamedDecl* decl);
+    unsigned int getDeclLine(clang::NamedDecl* decl);
+    std::string getDeclFilename(clang::NamedDecl* decl);
 
     enum HandleResult : std::uint8_t {
         kSuccess,
@@ -113,7 +114,6 @@ protected:
     HandleResult handleDecl(clang::EnumConstantDecl* decl, EnumConstantMetaInfo& info);
 
 private:
-    std::string         m_root;
     ProjectMetaInfo*    m_metadata;
     clang::ASTContext*  m_context;
 };
@@ -151,17 +151,16 @@ inline void ReflectASTConsumer::HandleTranslationUnit(clang::ASTContext& ctx)
     }
 }
 
-inline std::string ReflectASTConsumer::getFilename(clang::NamedDecl* decl)
+inline std::string ReflectASTConsumer::getDeclFilename(clang::NamedDecl* decl)
 {
-    std::string result;
+    std::string filename;
 
     auto location = m_context->getSourceManager().getPresumedLoc(decl->getLocation());
     if (!location.isInvalid()) {
         std::filesystem::path filepath(clang::tooling::getAbsolutePath(location.getFilename()));
-        filepath = std::filesystem::canonical(filepath);
-        result = std::filesystem::relative(filepath, m_root).string();
+        filename = std::filesystem::canonical(filepath).string();
     }
-    return result;
+    return filename;
 }
 
 inline void ReflectASTConsumer::handleDecl(clang::NamespaceDecl* decl)
@@ -341,7 +340,7 @@ inline void ReflectASTConsumer::handleDecl(clang::CXXRecordDecl* decl)
         }
     }
 
-    (*m_metadata).records.push_back(info);
+    (*m_metadata)[this->getDeclFilename(decl)].records.push_back(info);
 
     XPARSE_LOG_INFO("handled record: {0}.", info.full_name);
 }
@@ -423,7 +422,7 @@ inline void ReflectASTConsumer::handleDecl(clang::FunctionDecl* decl)
         return;
     }
 
-    (*m_metadata).functions.push_back(info);
+    (*m_metadata)[this->getDeclFilename(decl)].functions.push_back(info);
 
     XPARSE_LOG_INFO("handled function: {0}.", info.full_name);
 }
@@ -446,7 +445,7 @@ inline void ReflectASTConsumer::handleDecl(clang::EnumDecl* decl)
         }
     }
 
-    (*m_metadata).enums.push_back(info);
+    (*m_metadata)[this->getDeclFilename(decl)].enums.push_back(info);
 
     XPARSE_LOG_INFO("handled enum: {0}.", info.full_name);
 }
