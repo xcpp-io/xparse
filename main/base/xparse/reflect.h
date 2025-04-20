@@ -22,6 +22,7 @@
 #include <llvm/Support/FormatVariadic.h>
 
 #include <filesystem>
+#include <unordered_map>
 
 namespace xparse {
 
@@ -73,12 +74,12 @@ namespace detail {
 
 } // namespace detail
 
+using FileMetaInfoList = std::vector<FileMetaInfo>;
+using FileMetaInfoMap = std::unordered_map<std::string, CombinedMetaInfo>;
+
 class ReflectASTConsumer : public clang::ASTConsumer {
 public:
-    ReflectASTConsumer(ProjectMetaInfo& metadata)
-        : m_metadata(&metadata)
-    {
-    }
+    ReflectASTConsumer() = default;
 
     /**
      * @brief       LLVM's interface
@@ -88,7 +89,6 @@ public:
     void HandleTranslationUnit(clang::ASTContext& ctx) override;
 
 protected:
-    unsigned int getDeclLine(clang::NamedDecl* decl);
     std::string getDeclFilename(clang::NamedDecl* decl);
 
     enum HandleResult : std::uint8_t {
@@ -114,8 +114,9 @@ protected:
     HandleResult handleDecl(clang::EnumConstantDecl* decl, EnumConstantMetaInfo& info);
 
 private:
-    ProjectMetaInfo*    m_metadata;
-    clang::ASTContext*  m_context;
+    FileMetaInfoMap     m_metadata_map;
+    FileMetaInfoList    m_metadata_list;
+    clang::ASTContext*  m_context {};
 };
 
 inline void ReflectASTConsumer::HandleTranslationUnit(clang::ASTContext& ctx)
@@ -149,6 +150,22 @@ inline void ReflectASTConsumer::HandleTranslationUnit(clang::ASTContext& ctx)
             break;
         }
     }
+
+    // when everything is done, we should convert m_metadata_map to m_metadata_list.
+    for (auto& [filename, combined_metadata] : m_metadata_map) {
+
+        if (isEmpty(combined_metadata)) {
+            continue;
+        }
+        FileMetaInfo file_metainfo;
+        file_metainfo.file = filename;
+        file_metainfo.database = combined_metadata;
+        m_metadata_list.push_back(file_metainfo);
+    }
+
+    llvm::json::OStream json_outs { llvm::outs() };
+    xparse::Serializer::serialize(json_outs, m_metadata_list);
+    llvm::outs().flush();
 }
 
 inline std::string ReflectASTConsumer::getDeclFilename(clang::NamedDecl* decl)
@@ -340,7 +357,7 @@ inline void ReflectASTConsumer::handleDecl(clang::CXXRecordDecl* decl)
         }
     }
 
-    (*m_metadata)[this->getDeclFilename(decl)].records.push_back(info);
+    m_metadata_map[this->getDeclFilename(decl)].records.push_back(info);
 
     XPARSE_LOG_INFO("handled record: {0}.", info.full_name);
 }
@@ -422,7 +439,7 @@ inline void ReflectASTConsumer::handleDecl(clang::FunctionDecl* decl)
         return;
     }
 
-    (*m_metadata)[this->getDeclFilename(decl)].functions.push_back(info);
+    m_metadata_map[this->getDeclFilename(decl)].functions.push_back(info);
 
     XPARSE_LOG_INFO("handled function: {0}.", info.full_name);
 }
@@ -445,7 +462,7 @@ inline void ReflectASTConsumer::handleDecl(clang::EnumDecl* decl)
         }
     }
 
-    (*m_metadata)[this->getDeclFilename(decl)].enums.push_back(info);
+    m_metadata_map[this->getDeclFilename(decl)].enums.push_back(info);
 
     XPARSE_LOG_INFO("handled enum: {0}.", info.full_name);
 }

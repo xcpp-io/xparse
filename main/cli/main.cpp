@@ -5,18 +5,16 @@
 
 using clang::tooling::CommonOptionsParser;
 
-static xparse::ProjectMetaInfo s_project_metadata;
-
 class ReflectFrontendAction : public clang::ASTFrontendAction {
 public:
     ReflectFrontendAction() = default;
 
     std::unique_ptr<clang::ASTConsumer>
-    CreateASTConsumer(clang::CompilerInstance& compiler, llvm::StringRef file)
+    CreateASTConsumer(clang::CompilerInstance& compiler, llvm::StringRef /*file*/) override
     {
         auto& options = compiler.getLangOpts();
         options.CommentOpts.ParseAllComments = true;
-        return std::make_unique<xparse::ReflectASTConsumer>(s_project_metadata);
+        return std::make_unique<xparse::ReflectASTConsumer>();
     }
 };
 
@@ -58,21 +56,6 @@ int main(int argc, char** argv)
     int result = tool.run(clang::tooling::newFrontendActionFactory<ReflectFrontendAction>().get());
 
     XPARSE_LOG_INFO("parsing completed.");
-
-    llvm::json::OStream json_outs { llvm::outs() };
-    json_outs.arrayBegin();
-    for (auto& [filename, file_metadata] : s_project_metadata)
-    {
-        if (xparse::isEmpty(file_metadata)) {
-            continue;
-        }
-        file_metadata.file = filename;
-        xparse::Serializer::serialize(json_outs, file_metadata);
-    }
-    json_outs.arrayEnd();
-    llvm::outs().flush();
-
-    XPARSE_LOG_INFO("project metadata output completed!");
 
     return result;
 }
